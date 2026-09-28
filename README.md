@@ -43,14 +43,38 @@ the cell recovers shape, not just runs.
 
 ## Receipts
 
-`seal()` writes stone-v1-shaped JSONL: each op's payload hashed with
-64-bit FNV-1a, chained `prev → h`. `verify_chain()` replays it; any
-edited byte, wrong order, or truncation fails. The receipt above the
-fold of every artifact:
+`seal()` writes stone-v1-shaped JSONL: each record hashed with 64-bit
+FNV-1a over the FULL record (minus the `prev`/`h` link fields), chained
+`prev → h`. `verify_chain()` replays it; any edited byte, wrong order, or
+truncation fails. (2026-09-28 repair: the hash once covered only
+`{v,op,i,o,t}`, so payload edits — `complex`, `points_sha`, `bars_sha` —
+passed verification. Caught by running; pinned by
+`tests/test_quilt_rips.py::test_payload_tamper_detected`.) The receipt
+above the fold of every artifact:
 
 ```json
 {"v":1,"op":"BIND","i":"0000000000000000","o":"6ade81d53fc99f54","t":...,"points_sha":"89c921cc51d72d86","n":140,"dim":2,"max_edge_length":2.0,"prev":"...","h":"..."}
 ```
+
+## Verifying through quilt-stone
+
+The canonical fleet verifier is [quilt-stone](https://github.com/SuperInstance/quilt-stone)
+(`stone.mjs`, zero-dep). quilt-rips' NATIVE chain is a local dialect
+(fnv1a-64, `prev`/`h` link fields, full-record hashing) that stone does
+not auto-detect — said honestly, not laundered. The bridge is a
+PROJECTION: strip the native link fields, prepend a `stone.header` row
+naming quilt-rips as origin and recording the native dialect, re-seal with
+stone's own `sealChain` under the `stone-v1` forward format — the result
+verifies under stone's canonical `verifyChain`:
+
+```bash
+QUILT_STONE_PATH=/path/to/quilt-stone python -m pytest tests/test_stone_verification.py -v
+```
+
+Checkout-gated: no checkout (or no node) → the four pins skip, never fake
+green. Pins cover: native ground truth, projection verifies under stone,
+the projection header names origin + dialect, and a post-seal payload flip
+comes back `hash mismatch` at the exact edited index.
 
 ## Honest limits
 

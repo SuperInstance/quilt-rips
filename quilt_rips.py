@@ -16,6 +16,12 @@ Ops:
   VIEW   barcode SVG                         -> human-readable sink
   TICK   seal()                              -> stone-v1-shaped fnv1a chain
 
+Canonical verifier: SuperInstance/quilt-stone (stone.mjs). The native
+chain is a local dialect verified by verify_chain(); a stone-v1
+PROJECTION of it (header + re-seal via stone's sealChain) verifies under
+stone's verifyChain — pinned live in tests/test_stone_verification.py.
+See README "Verifying through quilt-stone".
+
 Usage:
   python quilt_rips.py demo [outdir]
   python quilt_rips.py verify <receipts.jsonl>
@@ -54,8 +60,10 @@ def verify_chain(path: str) -> bool:
                 if not line:
                     continue
                 rec = json.loads(line)
-                body = {k: rec[k] for k in ("v", "op", "i", "o", "t") if k in rec}
-                if fnv1a64(canonical(body)) != rec["h"]:
+                # full-record hash minus link fields — keep EXACTLY in sync
+                # with seal() (every payload byte is inside the claim).
+                hashed = {k: v for k, v in rec.items() if k not in ("prev", "h")}
+                if fnv1a64(canonical(hashed)) != rec["h"]:
                     return False
                 if rec.get("prev", "0" * 16) != prev:
                     return False
@@ -203,8 +211,12 @@ class QuiltRipsKernel:
             body = {"v": 1, "op": op, "i": prev, "o": fnv1a64(canonical(payload)),
                     "t": int(time.time()), "label": label, **payload}
             body["prev"] = prev
-            body["h"] = fnv1a64(canonical({k: body[k] for k in
-                                           ("v", "op", "i", "o", "t")}))
+            # hash the FULL record minus the link fields — a payload edit
+            # must break the chain, not just a {v,op,i,o,t} edit (2026-09-28
+            # hole: complex/points_sha/bars_sha lived outside the hash and
+            # verified fine after arbitrary edits).
+            hashed = {k: v for k, v in body.items() if k not in ("prev", "h")}
+            body["h"] = fnv1a64(canonical(hashed))
             lines.append(json.dumps(body))
             prev = body["h"]
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)

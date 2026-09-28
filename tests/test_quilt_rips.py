@@ -97,6 +97,39 @@ class TestReceipts:
         receipt.write_text("\n".join(lines) + "\n")
         assert not verify_chain(str(receipt)), "tampered chain must fail"
 
+    def test_payload_tamper_detected(self, tmp_path):
+        """2026-09-28 hole (caught by running): seal()/verify_chain() hashed
+        only {v,op,i,o,t}, so payload edits — complex, points_sha, bars_sha —
+        verified fine. README promises 'any edited byte ... fails'. This pin
+        makes the promise true: edit one payload field, chain must fail."""
+        rng = np.random.default_rng(7)
+        k = QuiltRipsKernel()
+        k.bind(synthetic_reef(rng), max_edge_length=2.0)
+        k.link("rips", max_dimension=2)
+        k.effect_persistence()
+        receipt = tmp_path / "receipts.jsonl"
+        k.seal(str(receipt), label="payload-tamper-test")
+        lines = receipt.read_text().splitlines()
+        rec = json.loads(lines[1])  # LINK row
+        assert rec["complex"] == "rips"
+        rec["complex"] = "alpha"    # a pure payload field, outside the old hash
+        lines[1] = json.dumps(rec)
+        receipt.write_text("\n".join(lines) + "\n")
+        assert not verify_chain(str(receipt)), \
+            "payload edit must break the chain (full-record hash law)"
+
+    def test_untampered_chain_with_payload_verifies(self, tmp_path):
+        """Guard against the fix over-correcting: an UNtampered sealed chain
+        with rich payload fields must still verify green."""
+        rng = np.random.default_rng(7)
+        k = QuiltRipsKernel()
+        k.bind(synthetic_reef(rng), max_edge_length=2.0)
+        k.link("rips", max_dimension=2)
+        k.effect_persistence()
+        receipt = tmp_path / "receipts.jsonl"
+        k.seal(str(receipt), label="roundtrip-test")
+        assert verify_chain(str(receipt))
+
     def test_ops_recorded_in_order(self, tmp_path):
         rng = np.random.default_rng(7)
         k = QuiltRipsKernel()
